@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# helper functions
+
+ETC_HOSTS=/etc/hosts
+PUBLIC_IP=$(dig +short myip.opendns.com @resolver1.opendns.com)
+HOSTNAME=$(hostname)
+USERID=$(id -u)
+
+function checkroot() {
+	if [[ $USERID -ne 0 ]]; then
+		echo "This script must be run as root"
+		exit 1
+	fi
+}
+
+function addhost() {
+	IP=$1
+	FQDN=$2
+	HOSTNAME=$3
+
+	HOSTS_LINE="$IP\t$FQDN\t$HOSTNAME"
+	if [ -n "$(grep $HOSTNAME $ETC_HOSTS)" ]
+	then
+		echo "$HOSTNAME already exists : $(grep $HOSTNAME $ETC_HOSTS)"
+	else
+		echo "Adding $HOSTNAME to your $ETC_HOSTS";
+		sudo -- sh -c -e "echo -e '$HOSTS_LINE' >> $ETC_HOSTS";
+
+	if [ -n "$(grep $HOSTNAME $ETC_HOSTS)" ]
+		then
+			echo -e "$HOSTNAME was added succesfully \n $(grep $HOSTNAME $ETC_HOSTS)";
+		else
+			echo -e "Failed to Add $HOSTNAME, Try again!";
+		fi
+	fi
+}
+
+# Setup Postfix
+function setup_postfix() {
+	yum update
+	yum install postfix
+	read -p 'FQDN: ' FQDN
+	addhost $PUBLIC_IP $FQDN $HOSTNAME
+}
+
+checkroot
+setup_postfix
+
