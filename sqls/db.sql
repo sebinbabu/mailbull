@@ -1,7 +1,7 @@
 create database vmail
     CHARACTER SET 'utf8';
 
-grant select on vmail.* to 'vmail'@'localhost' identified by 'securedbpass!!!';
+grant select on vmail.* to 'vmail'@'localhost' identified by '<DB_PASS>';
 
 use vmail;
 

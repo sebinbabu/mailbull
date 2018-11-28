@@ -6,16 +6,26 @@ HOSTNAME=$(hostname)
 USERID=$(id -u)
 YUM="/usr/bin/yum -y"
 
-read -p 'FQDN: ' FQDN
-read -p 'Email: ' EMAIL
+read -p 'Enter domain name: ' DOMAIN
+read -p 'Enter admin email: ' EMAIL
+
+MAILDOMAIN="mail.$DOMAIN"
+IMAPDOMAIN="imap.$DOMAIN"
+SMTPDOMAIN="smtp.$DOMAIN"
+
+WEBMASTEREMAIL="webmaster@$DOMAIN"
 
 # desplays user info
 function display_info() {
-	echo "Hosts File: $ETC_HOSTS"
-	echo "Public IP: $PUBLIC_IP"
-	echo "Hostname: $HOSTNAME"
-	echo "Fully Qualified Domain Name: $FQDN"
-	echo "Email: $EMAIL"
+	echo ":: Installation Details ::"
+	echo "\tPublic IP: $PUBLIC_IP"
+	echo "\tHostname: $HOSTNAME"
+	echo "\tDomain name: $DOMAIN"
+	echo "\tMail subdomain: $MAILDOMAIN"
+	echo "\tIMAP subdomain: $IMAPDOMAIN"
+	echo "\tSMTP subdomain: $SMTPDOMAIN"
+	echo "\tAdmin email: $EMAIL"
+	echo "\tWebmaster email: $WEBMASTEREMAIL"
 	echo
 }
 
@@ -44,7 +54,7 @@ function addhost() {
 	FQDN=$2
 	HOSTNAME=$3
 
-	HOSTS_LINE="$IP\t$FQDN\t$HOSTNAME"
+	HOSTS_LINE="$IP\t$DOMAIN\t$HOSTNAME"
 	if [ -n "$(grep $HOSTNAME $ETC_HOSTS)" ]
 	then
 		echo "$HOSTNAME already exists : $(grep $HOSTNAME $ETC_HOSTS)"
@@ -65,7 +75,7 @@ function addhost() {
 function setup_certbot() {
 	wget https://dl.eff.org/certbot-auto
 	chmod a+x ./certbot-auto
-	sudo ./certbot-auto certonly --standalone --debug -d $FQDN-d mail.$FQDN -d imap.$FQDN -d smtp.$FQDN-n --agree-tos -m $EMAIL
+	sudo ./certbot-auto certonly --standalone --debug -d $DOMAIN -d $MAILDOMAIN -d $IMAPDOMAIN -d $SMTPDOMAIN -n --agree-tos -m $EMAIL
 }
 
 # Setup users & maildirectories
@@ -91,7 +101,7 @@ function setup_postfix() {
 	echo $(hostname -f) > /etc/mailname
 
 	postconf -e "myhostname=$HOSTNAME"
-	postconf -e "mydomain=$FQDN"
+	postconf -e "mydomain=$DOMAIN"
 	postconf -e "myorigin=\$mydomain"
 	postconf -e "inet_interfaces=all"
 	postconf -e "inet_protocols=all"
@@ -109,9 +119,10 @@ function setup_dovecot() {
 
 }
 
-display_info
+# Main procedure
 checkroot
 setup_db
 setup_certbot
 setup_dovecot
 #setup_postfix
+display_info
