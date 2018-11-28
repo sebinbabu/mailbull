@@ -2,13 +2,22 @@
 # helper functions
 
 ETC_HOSTS=/etc/hosts
-PUBLIC_IP=$(dig +short myip.opendns.com @resolver1.opendns.com)
+PUBLIC_IP=$(curl -s ifconfig.me)
 HOSTNAME=$(hostname)
 USERID=$(id -u)
 YUM="/usr/bin/yum -y"
 
 read -p 'FQDN: ' FQDN
 read -p 'Email: ' EMAIL
+
+function display_info() {
+	echo "Hosts File: $ETC_HOSTS"
+	echo "Public IP: $PUBLIC_IP"
+	echo "Hostname: $HOSTNAME"
+	echo "Fully Qualified Domain Name: $FQDN"
+	echo "Email: $EMAIL"
+	echo
+}
 
 function checkroot() {
 	if [[ $USERID -ne 0 ]]; then
@@ -18,8 +27,8 @@ function checkroot() {
 }
 
 function setup_mariadb() {
-	cp repos/MariaDB.repo /etc/yum.repos.d/MariaDB.repo
-	yum install MariaDB-server MariaDB-client
+	yum -y install mariadb-server mariadb-client
+	systemctl start mariadb
 	mysql -sfu root < "sqls/mysql_secure_installation.sql"
 }
 
@@ -69,9 +78,8 @@ function setup_postfix() {
 
 }
 
-setup_mariadb
-exit 1
+display_info
 checkroot
+setup_mariadb
 setup_certbot
 setup_postfix
-
