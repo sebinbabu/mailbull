@@ -8,6 +8,7 @@ USERID=$(id -u)
 YUM="/usr/bin/yum -y"
 
 read -p 'FQDN: ' FQDN
+read -p 'Mail domain: ' SUBDOMAIN
 read -p 'Email: ' EMAIL
 
 function checkroot() {
@@ -15,12 +16,6 @@ function checkroot() {
 		echo "This script must be run as root"
 		exit 1
 	fi
-}
-
-function setup_mariadb() {
-	cp repos/MariaDB.repo /etc/yum.repos.d/MariaDB.repo
-	yum install MariaDB-server MariaDB-client
-	mysql -sfu root < "sqls/mysql_secure_installation.sql"
 }
 
 function addhost() {
@@ -49,7 +44,7 @@ function addhost() {
 function setup_certbot() {
 	wget https://dl.eff.org/certbot-auto
 	chmod a+x ./certbot-auto
-	sudo ./certbot-auto certonly --standalone --debug -d $FQDN-d mail.$FQDN -d imap.$FQDN -d smtp.$FQDN-n --agree-tos -m $EMAIL
+	sudo ./certbot-auto certonly --standalone --debug -d $FQDN-d $SUBDOMAIN.$FQDN -n --agree-tos -m $EMAIL
 }
 
 
@@ -57,20 +52,15 @@ function setup_certbot() {
 function setup_postfix() {
 	$YUM update
 	$YUM install postfix
-
 	addhost $PUBLIC_IP $FQDN $HOSTNAME
-	echo $(hostname -f) > /etc/mailname
-
 	postconf -e "myhostname=$HOSTNAME"
 	postconf -e "mydomain=$FQDN"
 	postconf -e "myorigin=\$mydomain"
 	postconf -e "inet_interfaces=all"
 	postconf -e "inet_protocols=all"
-
+	postconf -e "parameter=value"
 }
 
-setup_mariadb
-exit 1
 checkroot
 setup_certbot
 setup_postfix
