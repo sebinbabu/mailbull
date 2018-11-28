@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # helper functions
 
+
 ETC_HOSTS=/etc/hosts
 PUBLIC_IP=$(curl -s ifconfig.me)
 HOSTNAME=$(hostname)
