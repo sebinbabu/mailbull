@@ -13,19 +13,29 @@ MAILDOMAIN="mail.$DOMAIN"
 IMAPDOMAIN="imap.$DOMAIN"
 SMTPDOMAIN="smtp.$DOMAIN"
 
-WEBMASTEREMAIL="webmaster@$DOMAIN"
+POSTMASTEREMAIL="postmaster@$DOMAIN"
+
+DB_PASS=$(tr -dc _A-Z-a-z-0-9 < /dev/urandom | head -c15)
+DB_ROOT_PASS=$(tr -dc _A-Z-a-z-0-9 < /dev/urandom | head -c15)
 
 # desplays user info
 function display_info() {
-	echo ":: Installation Details ::"
-	echo "\tPublic IP: $PUBLIC_IP"
-	echo "\tHostname: $HOSTNAME"
-	echo "\tDomain name: $DOMAIN"
-	echo "\tMail subdomain: $MAILDOMAIN"
-	echo "\tIMAP subdomain: $IMAPDOMAIN"
-	echo "\tSMTP subdomain: $SMTPDOMAIN"
-	echo "\tAdmin email: $EMAIL"
-	echo "\tWebmaster email: $WEBMASTEREMAIL"
+	echo -e ":: Installation Details ::"
+	echo -e "\tPublic IP: $PUBLIC_IP"
+	echo -e "\tHostname: $HOSTNAME"
+	echo
+	echo -e "\tDomain name: $DOMAIN"
+	echo -e "\tMail subdomain: $MAILDOMAIN"
+	echo -e "\tIMAP subdomain: $IMAPDOMAIN"
+	echo -e "\tSMTP subdomain: $SMTPDOMAIN"
+	echo
+	echo -e "\tAdmin email: $EMAIL"
+	echo -e "\tPostmaster email: $POSTMASTEREMAIL"
+	echo
+	echo -e "\tMySQL root user: root"
+	echo -e "\tMySQL root password: $DB_ROOT_PASS"
+	echo -e "\tMySQL email db user: vmail"
+	echo -e "\tMySQL email db pass: $DB_PASS"
 	echo
 }
 
@@ -41,17 +51,19 @@ function checkroot() {
 function setup_db() {
 	$YUM update
 	$YUM install mariadb-server mariadb-client
+	
+	systemctl enable mariadb
 	systemctl start mariadb
 
-	mysql -sfu root < "sqls/mysql_secure_installation.sql"
-	mysql -sfu root -pemailroot! < "sqls/db.sql"
+	sed "s/<DB_ROOT_PASS>/$DB_ROOT_PASS/g" sqls/mysql_secure_installation.sql | mysql -sfu root
+	sed "s/<DB_PASS>/$DB_PASS/g" sqls/db.sql | mysql -sfu root -p$DB_ROOT_PASS
 }
 
 
 # adds entry to hosts
 function addhost() {
 	IP=$1
-	FQDN=$2
+	DOMAIN=$2
 	HOSTNAME=$3
 
 	HOSTS_LINE="$IP\t$DOMAIN\t$HOSTNAME"
@@ -73,19 +85,22 @@ function addhost() {
 
 # Setup Certbot & TLS certificates for the domain supplied
 function setup_certbot() {
-	wget https://dl.eff.org/certbot-auto
+	curl -s https://dl.eff.org/certbot-auto > certbot-auto
 	chmod a+x ./certbot-auto
-	sudo ./certbot-auto certonly --standalone --debug -d $DOMAIN -d $MAILDOMAIN -d $IMAPDOMAIN -d $SMTPDOMAIN -n --agree-tos -m $EMAIL
+	./certbot-auto certonly --standalone --debug -d $DOMAIN -n --agree-tos -m $EMAIL
 }
 
 # Setup users & maildirectories
-fuction setup_maildir() {
-	mkdir /var/vmail
-	mkdir /var/vmail/mailboxes
+function setup_maildir() {
+	mkdir -p /var/vmail/mailboxes
 	mkdir -p /var/vmail/sieve/global
 
 	groupadd vmail
-	adduser --disabled-login --disabled-password --home /var/vmail -g vmail vmail
+	useradd -d /var/vmail -g vmail -s /sbin/nologin -M vmail
+
+	cp confs/vmail/sieve/global/spam-global.sieve /var/vmail/sieve/global/spam-global.sieve
+        cp confs/vmail/sieve/global/learn-spam.sieve /var/vmail/sieve/global/learn-spam.sieve
+        cp confs/vmail/sieve/global/learn-ham.sieve /var/vmail/sieve/global/learn-ham.sieve
 
 	chown -R vmail /var/vmail
 	chgrp -R vmail /var/vmail
@@ -97,32 +112,52 @@ function setup_postfix() {
 	$YUM update
 	$YUM install postfix
 
-	addhost $PUBLIC_IP $FQDN $HOSTNAME
+	addhost $PUBLIC_IP $DOMAIN $HOSTNAME
 	echo $(hostname -f) > /etc/mailname
+	
+	systemctl stop postfix
+	systemctl enable postfix
 
-	postconf -e "myhostname=$HOSTNAME"
-	postconf -e "mydomain=$DOMAIN"
-	postconf -e "myorigin=\$mydomain"
-	postconf -e "inet_interfaces=all"
-	postconf -e "inet_protocols=all"
+	rm /etc/postfix/{master.cf,main.cf}
+	mkdir /etc/postfix/sql
 
+	sed "s/<DOMAIN>/$DOMAIN/g; s/<PUBLIC_IP>/$PUBLIC_IP/g; s/<HOSTNAME>/$HOSTNAME/g" confs/postfix/main.cf > /etc/postfix/main.cf
+
+	cp confs/postfix/master.cf /etc/postfix/master.cf
+	cp confs/postfix/submission_header_cleanup /etc/postfix/submission_header_cleanup
+
+	for filename in confs/postfix/sql/*.cf; do
+    		[ -e "$filename" ] || continue
+		sed "s/<DB_PASS>/$DB_PASS/g" $filename > /etc/postfix/sql/$(basename "$filename")		
+ 	done
+
+	chmod -R 640 /etc/postfix/sql
+
+	touch /etc/postfix/without_ptr
+	touch /etc/postfix/postscreen_access	
 }
 
 # Setup Dovecot
 function setup_dovecot() {
 	$YUM update
 	$YUM install dovecot dovecot-mysql
+	
+	systemctl enable dovecot
 	systemctl stop dovecot
 
 	# remove all default configuration
 	rm -r /etc/dovecot/*
 
+	sed "s/<DOMAIN>/$DOMAIN/g; s/<ADDRESS>/$POSTMASTEREMAIL/g" confs/dovecot/dovecot.conf > /etc/dovecot/dovecot.conf
+	sed "s/<DB_PASS>/$DB_PASS/g" confs/dovecot/dovecot-sql.conf > /etc/dovecot/dovecot-sql.conf
+	chmod 440 /etc/dovecot/dovecot-sql.conf	  
 }
 
 # Main procedure
 checkroot
 setup_db
+setup_maildir
 setup_certbot
 setup_dovecot
-#setup_postfix
+setup_postfix
 display_info
