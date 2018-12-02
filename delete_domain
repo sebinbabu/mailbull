@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+
+PWD=$(pwd)
+
+if [ "$#" -ne 1 ]; then
+	echo "Usage: ./delete_user maildomain.tld"
+	exit 1
+fi
+
+source .conf
+
+DOMAIN=$1
+
+sed "s <DOMAIN> $DOMAIN g" $PWD/sqls/delete_domain.sql | mysql -sfu root -p$DB_ROOT_PASS

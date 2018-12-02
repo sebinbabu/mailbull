@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+
+PWD=$(pwd)
+
+if [[ $1 = "-v" ]]; then
+        OUT="/dev/stdout"
+else
+    	OUT="/dev/null"
+fi
+
+
+yum -y remove postfix dovecot mariadb-client mariadb-server > $OUT 
+rm -rf /var/lib/mysql
+rm -rf /etc/dovecot
+rm -rf /etc/postfix
+rm -rf /var/spool/postfix
+rm -rf /var/vmail
+rm -f $PWD/certbot-auto
+rm -f $PWD/.conf
+rm -f $PWD/setup.log
+userdel vmail

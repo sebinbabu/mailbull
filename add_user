@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+
+PWD=$(pwd)
+source .conf
+
+if [ "$#" -eq 1 ]; then
+	while true; do
+    		read -s -p "Enter password: " USER_PASS
+    		echo
+    		read -s -p "Reenter password: " re
+    		echo
+    		[ "$USER_PASS" = "$re" ] && break
+    		echo "Please try again"
+	done
+elif [ "$#" -eq 2 ]; then
+	USER_PASS=$2
+else
+	echo "Usage: ./add_user username@maildomain.tld"
+	exit 1
+fi
+
+USER=$(echo $1 | cut -d@ -f1)
+DOMAIN=$(echo $1 | cut -d@ -f2)
+
+PASSWORD=$(doveadm pw -s SHA512-CRYPT -p$USER_PASS)
+
+sed "s <USER> $USER g; s <DOMAIN> $DOMAIN g; s <PASSWORD> $PASSWORD g" $PWD/sqls/add_user.sql | mysql -sfu root -p$DB_ROOT_PASS

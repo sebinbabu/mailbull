@@ -1,13 +1,16 @@
 #!/usr/bin/env bash
 
 ETC_HOSTS=/etc/hosts
+PWD=$(pwd)
 PUBLIC_IP=$(curl -s ifconfig.me)
-HOSTNAME=$(hostname)
+PRIVATE_IP=$(ip route get 1 | awk '{print $NF;exit}')
 USERID=$(id -u)
 YUM="/usr/bin/yum -y"
 
 read -p 'Enter domain name: ' DOMAIN
 read -p 'Enter admin email: ' EMAIL
+
+HOSTNAME=mail.$DOMAIN
 
 MAILDOMAIN="mail.$DOMAIN"
 IMAPDOMAIN="imap.$DOMAIN"
@@ -17,25 +20,38 @@ POSTMASTEREMAIL="postmaster@$DOMAIN"
 
 DB_PASS=$(tr -dc _A-Z-a-z-0-9 < /dev/urandom | head -c15)
 DB_ROOT_PASS=$(tr -dc _A-Z-a-z-0-9 < /dev/urandom | head -c15)
+USER_PASS=$(tr -dc _A-Z-a-z-0-9 < /dev/urandom | head -c8)
+
+if [[ $1 = "-v" ]]; then
+	OUT="/dev/stdout"
+else
+	OUT="$PWD/setup.log"
+fi
 
 # desplays user info
 function display_info() {
+	echo
 	echo -e ":: Installation Details ::"
 	echo -e "\tPublic IP: $PUBLIC_IP"
+	echo -e "\tPrivate IP: $PRIVATE_IP"
 	echo -e "\tHostname: $HOSTNAME"
 	echo
 	echo -e "\tDomain name: $DOMAIN"
-	echo -e "\tMail subdomain: $MAILDOMAIN"
-	echo -e "\tIMAP subdomain: $IMAPDOMAIN"
-	echo -e "\tSMTP subdomain: $SMTPDOMAIN"
+	echo -e "\tSMTP host: $DOMAIN"
+	echo -e "\tSMTP port: 587"
+	echo -e "\tIMAP host: $DOMAIN"
+	echo -e "\tIMAP port: 993 or 143"
 	echo
 	echo -e "\tAdmin email: $EMAIL"
 	echo -e "\tPostmaster email: $POSTMASTEREMAIL"
+	echo -e "\tPostmaster password: $USER_PASS"
 	echo
 	echo -e "\tMySQL root user: root"
 	echo -e "\tMySQL root password: $DB_ROOT_PASS"
 	echo -e "\tMySQL email db user: vmail"
 	echo -e "\tMySQL email db pass: $DB_PASS"
+	echo
+	echo -e "\tSetup log saved at setup.log"
 	echo
 }
 
@@ -46,7 +62,7 @@ function checkroot() {
 		exit 1
 	fi
 }
-
+ 
 # sets up a mysql database server
 function setup_db() {
 	$YUM update
@@ -55,8 +71,8 @@ function setup_db() {
 	systemctl enable mariadb
 	systemctl start mariadb
 
-	sed "s/<DB_ROOT_PASS>/$DB_ROOT_PASS/g" sqls/mysql_secure_installation.sql | mysql -sfu root
-	sed "s/<DB_PASS>/$DB_PASS/g" sqls/db.sql | mysql -sfu root -p$DB_ROOT_PASS
+	sed "s/<DB_ROOT_PASS>/$DB_ROOT_PASS/g" $PWD/sqls/mysql_secure_installation.sql | mysql -sfu root
+	sed "s/<DB_PASS>/$DB_PASS/g" $PWD/sqls/db.sql | mysql -sfu root -p$DB_ROOT_PASS
 }
 
 
@@ -85,22 +101,18 @@ function addhost() {
 
 # Setup Certbot & TLS certificates for the domain supplied
 function setup_certbot() {
-	curl -s https://dl.eff.org/certbot-auto > certbot-auto
-	chmod a+x ./certbot-auto
-	./certbot-auto certonly --standalone --debug -d $DOMAIN -n --agree-tos -m $EMAIL
+	curl -s https://dl.eff.org/certbot-auto > $PWD/certbot-auto
+	chmod a+x $PWD/certbot-auto
+	$PWD/certbot-auto certonly --standalone --debug -d $DOMAIN -n --agree-tos -m $EMAIL
 }
 
 # Setup users & maildirectories
 function setup_maildir() {
-	mkdir -p /var/vmail/mailboxes
-	mkdir -p /var/vmail/sieve/global
+	mkdir /var/vmail/
+	mkdir /var/vmail/mailboxes
 
 	groupadd vmail
 	useradd -d /var/vmail -g vmail -s /sbin/nologin -M vmail
-
-	cp confs/vmail/sieve/global/spam-global.sieve /var/vmail/sieve/global/spam-global.sieve
-        cp confs/vmail/sieve/global/learn-spam.sieve /var/vmail/sieve/global/learn-spam.sieve
-        cp confs/vmail/sieve/global/learn-ham.sieve /var/vmail/sieve/global/learn-ham.sieve
 
 	chown -R vmail /var/vmail
 	chgrp -R vmail /var/vmail
@@ -112,29 +124,40 @@ function setup_postfix() {
 	$YUM update
 	$YUM install postfix
 
-	addhost $PUBLIC_IP $DOMAIN $HOSTNAME
+	# Disable selinux temporarily and permanantly
+	# selinux will be permanantly disables on reboot
+	setenforce 0
+	sed -i 's/enforcing/disabled/g' /etc/sysconfig/selinux
+	sed -i 's/enforcing/disabled/g' /etc/selinux/config
+
+	addhost $PRIVATE_IP $DOMAIN $HOSTNAME
 	echo $(hostname -f) > /etc/mailname
 	
 	systemctl stop postfix
 	systemctl enable postfix
 
 	rm /etc/postfix/{master.cf,main.cf}
-	mkdir /etc/postfix/sql
+	mkdir -p /etc/postfix/sql
 
-	sed "s/<DOMAIN>/$DOMAIN/g; s/<PUBLIC_IP>/$PUBLIC_IP/g; s/<HOSTNAME>/$HOSTNAME/g" confs/postfix/main.cf > /etc/postfix/main.cf
+	sed "s/<DOMAIN>/$DOMAIN/g; s/<PRIVATE_IP>/$PRIVATE_IP/g; s/<HOSTNAME>/$HOSTNAME/g" $PWD/confs/postfix/main.cf > /etc/postfix/main.cf
 
-	cp confs/postfix/master.cf /etc/postfix/master.cf
-	cp confs/postfix/submission_header_cleanup /etc/postfix/submission_header_cleanup
+	cp $PWD/confs/postfix/master.cf /etc/postfix/master.cf
+	cp $PWD/confs/postfix/submission_header_cleanup /etc/postfix/submission_header_cleanup
 
-	for filename in confs/postfix/sql/*.cf; do
+	for filename in $PWD/confs/postfix/sql/*.cf; do
     		[ -e "$filename" ] || continue
 		sed "s/<DB_PASS>/$DB_PASS/g" $filename > /etc/postfix/sql/$(basename "$filename")		
  	done
 
 	chmod -R 640 /etc/postfix/sql
 
-	touch /etc/postfix/without_ptr
-	touch /etc/postfix/postscreen_access	
+	# fixing up chroot and permissions
+	mkdir -p /var/spool/postfix/etc
+	cp /etc/services /var/spool/postfix/etc/services
+	cp /etc/resolv.conf /var/spool/postfix/etc/resolv.conf
+	chown -R postfix /var/spool/postfix/etc	
+
+	newaliases
 }
 
 # Setup Dovecot
@@ -148,16 +171,57 @@ function setup_dovecot() {
 	# remove all default configuration
 	rm -r /etc/dovecot/*
 
-	sed "s/<DOMAIN>/$DOMAIN/g; s/<ADDRESS>/$POSTMASTEREMAIL/g" confs/dovecot/dovecot.conf > /etc/dovecot/dovecot.conf
-	sed "s/<DB_PASS>/$DB_PASS/g" confs/dovecot/dovecot-sql.conf > /etc/dovecot/dovecot-sql.conf
+	sed "s/<DOMAIN>/$DOMAIN/g; s/<POSTMASTEREMAIL>/$POSTMASTEREMAIL/g" $PWD/confs/dovecot/dovecot.conf > /etc/dovecot/dovecot.conf
+	sed "s/<DB_PASS>/$DB_PASS/g" $PWD/confs/dovecot/dovecot-sql.conf > /etc/dovecot/dovecot-sql.conf
 	chmod 440 /etc/dovecot/dovecot-sql.conf	  
 }
 
+# Save configuration
+function save_conf() {
+	echo "DOMAIN=$DOMAIN" >> .conf
+	echo "DB_PASS=$DB_PASS" >> .conf
+	echo "DB_ROOT_PASS=$DB_ROOT_PASS" >> .conf
+	echo "USER_PASS=$USER_PASS" >> .conf
+	
+	chmod 600 .conf
+	chown root .conf
+}
+
+# creates postmaster user and domain db entries
+function db_conf() {
+	bash $PWD/add_domain $DOMAIN
+	bash $PWD/add_user postmaster $DOMAIN $USER_PASS
+}
+
+
+
 # Main procedure
-checkroot
-setup_db
-setup_maildir
-setup_certbot
-setup_dovecot
-setup_postfix
+echo ":: Install begin : $(date) ::" > "$OUT"
+
+echo " : checking root access :"
+checkroot 2>&1 >> "$OUT"
+
+echo " : installing mysql and setting up databases : "
+setup_db 2>&1 >> "$OUT"
+
+echo " : setting up email directory and users : "
+setup_maildir 2>&1 >> "$OUT" 
+
+echo " : generating and signing certificates : "
+setup_certbot 2>&1 >> "$OUT"
+
+echo " : installing and setting up Dovecot MDA : "
+setup_dovecot 2>&1 >> "$OUT"
+
+echo " : installing and setting up Postfix MTA : "
+setup_postfix 2>&1 >> "$OUT"
+
+echo " : saving configuration to .conf : "
+save_conf 2>&1 >> "$OUT"
+
+echo " : creating user and domain entries : "
+db_conf 2>&1 >> "$OUT"
+
 display_info
+
+echo ":: Install end : $(date) ::" >> "$OUT"
