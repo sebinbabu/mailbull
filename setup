@@ -8,7 +8,6 @@ USERID=$(id -u)
 YUM="/usr/bin/yum -y"
 
 # check root access
-echo " : checking root access :"
 if [[ $USERID -ne 0 ]]; then
         echo "This script must be run as root"
         exit 1
