@@ -7,6 +7,13 @@ PRIVATE_IP=$(ip route get 1 | awk '{print $NF;exit}')
 USERID=$(id -u)
 YUM="/usr/bin/yum -y"
 
+# check root access
+echo " : checking root access :"
+if [[ $USERID -ne 0 ]]; then
+        echo "This script must be run as root"
+        exit 1
+fi
+
 read -p 'Enter domain name: ' DOMAIN
 read -p 'Enter admin email: ' EMAIL
 
@@ -55,14 +62,6 @@ function display_info() {
 	echo -e "\tSetup log saved at setup.log"
 	echo -e "\tRun ./change_pass to change default password"
 	echo
-}
-
-# checks if root access is granted
-function checkroot() {
-	if [[ $USERID -ne 0 ]]; then
-		echo "This script must be run as root"
-		exit 1
-	fi
 }
  
 # sets up a mysql database server
@@ -203,9 +202,6 @@ function enable_services() {
 
 # Main procedure
 echo ":: Install begin : $(date) ::" > "$OUT"
-
-echo " : checking root access :"
-checkroot 2>&1 >> "$OUT"
 
 echo " : installing mysql and setting up databases : "
 setup_db 2>&1 >> "$OUT"
