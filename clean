@@ -9,7 +9,7 @@ else
 fi
 
 
-yum -y remove postfix dovecot mariadb-client mariadb-server > $OUT 
+yum -y remove postfix dovecot mariadb-server > $OUT 
 rm -rf /var/lib/mysql
 rm -rf /etc/dovecot
 rm -rf /etc/postfix

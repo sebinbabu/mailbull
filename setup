@@ -134,7 +134,6 @@ function setup_postfix() {
 	echo $(hostname -f) > /etc/mailname
 	
 	systemctl stop postfix
-	systemctl enable postfix
 
 	rm /etc/postfix/{master.cf,main.cf}
 	mkdir -p /etc/postfix/sql
@@ -164,8 +163,7 @@ function setup_postfix() {
 function setup_dovecot() {
 	$YUM update
 	$YUM install dovecot dovecot-mysql
-	
-	systemctl enable dovecot
+
 	systemctl stop dovecot
 
 	# remove all default configuration
@@ -190,10 +188,16 @@ function save_conf() {
 # creates postmaster user and domain db entries
 function db_conf() {
 	bash $PWD/add_domain $DOMAIN
-	bash $PWD/add_user postmaster $DOMAIN $USER_PASS
+	bash $PWD/add_user postmaster@$DOMAIN $USER_PASS
 }
 
-
+# enables and starts services
+function enable_services() {
+	systemctl enable dovecot
+	systemctl enable postfix
+	systemctl start dovecot
+	systemctl start postfix
+}
 
 # Main procedure
 echo ":: Install begin : $(date) ::" > "$OUT"
@@ -221,6 +225,9 @@ save_conf 2>&1 >> "$OUT"
 
 echo " : creating user and domain entries : "
 db_conf 2>&1 >> "$OUT"
+
+echo " : switching on services : "
+enable_services
 
 display_info
 
