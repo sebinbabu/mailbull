@@ -18,3 +18,9 @@ source .conf
 DOMAIN=$1
 
 sed "s/<DOMAIN>/$DOMAIN/g" $PWD/sqls/add_domain.sql | mysql -sfu root -p$DB_ROOT_PASS
+
+
+curl -s https://dl.eff.org/certbot-auto > $PWD/certbot-auto
+chmod a+x $PWD/certbot-auto
+$PWD/certbot-auto certonly --standalone --debug -d $DOMAIN -d mail.$DOMAIN -n --agree-tos -m $EMAIL
+

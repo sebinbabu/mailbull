@@ -103,7 +103,7 @@ function addhost() {
 function setup_certbot() {
 	curl -s https://dl.eff.org/certbot-auto > $PWD/certbot-auto
 	chmod a+x $PWD/certbot-auto
-	$PWD/certbot-auto certonly --standalone --debug -d $DOMAIN -n --agree-tos -m $EMAIL
+	$PWD/certbot-auto certonly -- expand --standalone --debug -d $DOMAIN -d mail.$DOMAIN -n --agree-tos -m $EMAIL
 }
 
 # Setup users & maildirectories
@@ -176,6 +176,7 @@ function setup_dovecot() {
 
 # Save configuration
 function save_conf() {
+	echo "EMAIL=$EMAIL" > .conf
 	echo "DOMAIN=$DOMAIN" >> .conf
 	echo "DB_PASS=$DB_PASS" >> .conf
 	echo "DB_ROOT_PASS=$DB_ROOT_PASS" >> .conf
